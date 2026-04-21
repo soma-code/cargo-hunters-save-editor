@@ -1,6 +1,6 @@
 # Cargo Hunters Save Editor
 
-An offline save file editor for [Cargo Hunters](https://store.steampowered.com/app/4197990/Cargo_Hunters/) (OrderOfMeta).
+An offline save file editor for [Cargo Hunters](https://store.steampowered.com/app/4197990/Cargo_Hunters/).
 
 ![Stash grid with colour-coded items matching the in-game layout](docs/screenshot_grid.png)
 
@@ -48,7 +48,7 @@ The editor ships with `item_templates.json` — a list of every item in the game
 
 ### Updating after a game patch
 
-When Cargo Hunters adds new items, regenerate the database:
+When the game adds new items, regenerate the database:
 
 1. Install [UnityPy](https://github.com/K0lb3/UnityPy): `pip install unitypy`
 2. Run the extraction:
