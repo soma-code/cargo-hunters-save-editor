@@ -1,8 +1,8 @@
 # Cargo Hunters Save Editor
 
-##MASSIVE DISCLAIMER
-###The save file backup system included in this is an afterthought. 
-###You should be making manual backups of important saves before using any sort of save file editor like this.
+## MASSIVE DISCLAIMER
+### The save file backup system included in this is an afterthought. 
+### You should be making manual backups of important saves before using any sort of save file editor like this.
 
 
 
