@@ -1,0 +1,22 @@
+# Save files — never commit personal save data
+*.save
+*.save.bak
+*.save.bak*
+
+# Extracted raw data (not needed by the editor)
+item_sizes.json
+item_sizes_raw.json
+
+# Il2CppDumper tool — download separately, not redistributed
+tools/il2cppdumper/
+tools/il2cppdumper.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Screenshots / local temp files
+*.png
+*.jpg
+*.jpeg
