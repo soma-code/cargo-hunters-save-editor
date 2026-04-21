@@ -1,5 +1,6 @@
 import json
 import shutil
+import sys
 import uuid as _uuid
 import tkinter as tk
 import tkinter.font as tkfont
@@ -13,8 +14,18 @@ CELL = 56  # pixels per grid cell
 GRID_ROWS = 30   # J axis — vertical (matches base stash Height from template)
 GRID_COLS = 8    # I axis — horizontal (matches base stash Width from template)
 
-# item_templates.json extracted from the game bundle; cached next to the editor.
-_ITEMS_DB_CACHE = Path(__file__).parent / "item_templates.json"
+# When frozen by PyInstaller, item_templates.json is bundled into _MEIPASS.
+# At runtime we cache it next to the exe so it survives across relaunches.
+def _items_db_path() -> Path:
+    if getattr(sys, "frozen", False):
+        bundled = Path(sys._MEIPASS) / "item_templates.json"
+        cache = Path(sys.executable).parent / "item_templates.json"
+        if not cache.exists() and bundled.exists():
+            shutil.copy2(bundled, cache)
+        return cache
+    return Path(__file__).parent / "item_templates.json"
+
+_ITEMS_DB_CACHE = _items_db_path()
 
 _GAME_BUNDLE_SUFFIX = (
     "steamapps/common/Cargo Hunters/CargoHunters_Data"

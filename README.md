@@ -2,7 +2,11 @@
 
 An offline save file editor for [Cargo Hunters](https://store.steampowered.com/app/4197990/Cargo_Hunters/) (OrderOfMeta).
 
-![Dark mode UI showing the stash grid with colour-coded items by category](docs/screenshot.png)
+![Stash grid with colour-coded items matching the in-game layout](docs/screenshot_grid.png)
+
+| Spawn item browser (sorted by value) | In-game stash for reference |
+|---|---|
+| ![Spawn dialog sorted by base price descending](docs/screenshot_spawn.png) | ![In-game stash inventory](docs/screenshot_ingame.png) |
 
 ---
 
