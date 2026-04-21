@@ -1,5 +1,11 @@
 # Cargo Hunters Save Editor
 
+##MASSIVE DISCLAIMER
+###The save file backup system included in this is an afterthought. 
+###You should be making manual backups of important saves before using any sort of save file editor like this.
+
+
+
 An offline save file editor for [Cargo Hunters](https://store.steampowered.com/app/4197990/Cargo_Hunters/).
 
 ![Stash grid with colour-coded items matching the in-game layout](docs/screenshot_grid.png)
