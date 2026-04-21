@@ -264,7 +264,7 @@ def _load_items_db(_save_path=None):
         tid = entry.get("_id", "")
         if not tid:
             continue
-        name, w, h, resizable, max_w, max_h, cat_id, price = "", 1, 1, False, None, None, "", ""
+        name, w, h, resizable, max_w, max_h, cat_id, price, stack_cap, has_cond, cond_max = "", 1, 1, False, None, None, "", "", None, False, None
         for comp in entry.get("_components", []):
             t = comp.get("$t")
             if t == 26276:
@@ -283,12 +283,22 @@ def _load_items_db(_save_path=None):
                 items_list = comp.get("_data", {}).get("Price", {}).get("Items", [])
                 if items_list:
                     price = str(items_list[0].get("Count", ""))
+            elif t == 24348:
+                stack_cap = comp.get("_data", {}).get("StackCapacity")
+            elif t == 35317:
+                has_cond = True
+                qty_per_seg = comp.get("_data", {}).get("DecreaseByType", [{}])[0].get("QuantityPerSegment")
+                if qty_per_seg:
+                    cond_max = qty_per_seg / 1000
         db[tid] = {
             "ItemID": tid, "ItemName": name,
             "Width": w, "Height": h,
             "IsResizable": resizable,
             "MaxWidth": max_w, "MaxHeight": max_h,
             "CategoryID": cat_id, "BasePrice": price,
+            "StackCapacity": stack_cap,
+            "HasCondition": has_cond,
+            "ConditionMax": cond_max,
         }
     return db
 
@@ -387,6 +397,11 @@ class SpawnDialog(tk.Toplevel):
         bot.pack(fill="x")
         ttk.Button(bot, text="Add to stash", command=self._confirm).pack(side="right")
         ttk.Button(bot, text="Cancel", command=self.destroy).pack(side="right", padx=4)
+        ttk.Label(bot, text="Quantity:").pack(side="left")
+        self._qty_var = tk.IntVar(value=1)
+        self._qty_spin = ttk.Spinbox(bot, from_=1, to=1, textvariable=self._qty_var, width=6)
+        self._qty_spin.pack(side="left", padx=4)
+        self._tree.bind("<<TreeviewSelect>>", self._on_select)
 
         self._filter()
 
@@ -437,6 +452,17 @@ class SpawnDialog(tk.Toplevel):
                 row.get("BasePrice", ""),
             ))
 
+    def _on_select(self, _event=None):
+        sel = self._tree.selection()
+        if not sel:
+            return
+        info = self._items_db.get(sel[0], {})
+        cap = info.get("StackCapacity") or 1
+        self._qty_spin.configure(to=cap)
+        if self._qty_var.get() > cap:
+            self._qty_var.set(cap)
+        self._qty_spin.configure(state="normal" if cap > 1 else "disabled")
+
     def _confirm(self):
         sel = self._tree.selection()
         if not sel:
@@ -445,7 +471,12 @@ class SpawnDialog(tk.Toplevel):
         template_id = sel[0]
         info = self._items_db[template_id]
         i_sp, j_sp = _item_size(info)
-        self._grid.spawn_item(template_id, self._row, self._col, i_sp, j_sp)
+        cap = info.get("StackCapacity") or 1
+        try:
+            qty = max(1, min(cap, int(self._qty_var.get())))
+        except (ValueError, tk.TclError):
+            qty = 1
+        self._grid.spawn_item(template_id, self._row, self._col, i_sp, j_sp, qty)
         self.destroy()
 
 
@@ -597,6 +628,21 @@ class StashGrid(ttk.Frame):
             c.create_text((x1 + x2) // 2, (y1 + y2) // 2,
                           text=label, fill=fg, font=font, tags=("item", iid),
                           justify="center")
+
+            ad = item.get("AdditionalData", {}).get("_data", {})
+            small = ("Segoe UI", 7)
+
+            # Bottom right: stack quantity
+            qty = ad.get("StackableComponent_quantity")
+            if qty is not None and qty > 1:
+                c.create_text(x2 - 3, y2 - 2, text=str(qty), fill=fg, font=small,
+                              anchor="se", tags=("item", iid))
+
+            # Bottom left: raw condition value (higher = better)
+            cond_d = ad.get("Condition_d")
+            if cond_d is not None:
+                c.create_text(x1 + 3, y2 - 2, text=f"{cond_d:.1f}", fill=fg, font=small,
+                              anchor="sw", tags=("item", iid))
 
     def _canvas_cell(self, event):
         x = self._canvas.canvasx(event.x)
@@ -759,6 +805,10 @@ class StashGrid(ttk.Frame):
                 label=f'Delete  \u201c{name}\u201d',
                 command=lambda i=item["Id"]: self._delete_item(i),
             )
+            if item.get("AdditionalData", {}).get("_data", {}).get("Condition_d") is not None:
+                menu.add_separator()
+                menu.add_command(label="Set to mint", command=lambda i=item: self._set_mint(i))
+                menu.add_command(label="Set condition…", command=lambda i=item: self._set_condition(i))
             menu.add_separator()
             menu.add_command(label="Spawn different item here…", command=lambda: self._open_spawn(row, col))
         else:
@@ -773,10 +823,48 @@ class StashGrid(ttk.Frame):
         ]
         self.refresh()
 
+    def _set_mint(self, item):
+        ad = item.get("AdditionalData", {}).get("_data", {})
+        ad.pop("Condition_d", None)
+        ad.pop("Condition_mt", None)
+        self.refresh()
+
+    def _set_condition(self, item):
+        ad = item.setdefault("AdditionalData", {}).setdefault("_data", {})
+        cond_d = ad.get("Condition_d", 1.0)
+        cond_mt = ad.get("Condition_mt")
+        tid = item.get("TemplateId", "")
+        template_max = self._editor.items_db.get(tid, {}).get("ConditionMax")
+        max_val = cond_mt if cond_mt and cond_mt > 0 else template_max if template_max else cond_d if cond_d > 0 else 1.0
+        current_pct = int(round(cond_d / max_val * 100)) if max_val else 100
+
+        dlg = tk.Toplevel(self._editor)
+        dlg.title("Set Condition")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.geometry("260x100")
+
+        ttk.Label(dlg, text="Condition (0 = broken, 100 = perfect):").pack(pady=(12, 4))
+        var = tk.IntVar(value=current_pct)
+        spin = ttk.Spinbox(dlg, from_=0, to=100, textvariable=var, width=8)
+        spin.pack()
+
+        def _apply():
+            try:
+                pct = max(0, min(100, int(var.get()))) / 100
+            except (ValueError, tk.TclError):
+                pct = 1.0
+            ad["Condition_d"] = max_val * pct
+            dlg.destroy()
+            self.refresh()
+
+        ttk.Button(dlg, text="Apply", command=_apply).pack(pady=8)
+        spin.focus_set()
+
     def _open_spawn(self, row, col):
         SpawnDialog(self._editor, self._editor.items_db, self, row, col)
 
-    def spawn_item(self, template_id, row, col, w, h):
+    def spawn_item(self, template_id, row, col, w, h, qty=1):
         if row < 0 or col < 0 or row + h > GRID_ROWS or col + w > GRID_COLS:
             messagebox.showerror(
                 "Out of bounds",
@@ -798,9 +886,11 @@ class StashGrid(ttk.Frame):
             "Id": str(_uuid.uuid4()),
             "ParentId": self._stash_id,
             "TemplateId": template_id,
-            "Position": {"I": col, "J": row},   # I=col (horizontal), J=row (vertical)
+            "Position": {"I": col, "J": row},
             "IsInspected": True,
         }
+        if qty > 1:
+            new_item["AdditionalData"] = {"_data": {"StackableComponent_quantity": qty}}
         self._editor.data["InventoryDto"]["ItemsContainerDto"]["Items"].append(new_item)
         self.refresh()
 
