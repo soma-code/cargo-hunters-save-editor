@@ -21,3 +21,6 @@ __pycache__/
 *.jpeg
 *.png
 !docs/*.png
+
+# Local drafts
+docs/steam_guide.md
