@@ -1,0 +1,38 @@
+  name: Build
+
+  on:
+    push:
+      tags:
+        - 'v*'
+
+  jobs:
+    build:
+      runs-on: windows-latest
+
+      steps:
+        - uses: actions/checkout@v4
+
+        - uses: actions/setup-python@v5
+          with:
+            python-version: '3.12'
+
+        - name: Install PyInstaller
+          run: pip install pyinstaller
+
+        - name: Build executable
+          run: pyinstaller --onefile --windowed --name "CargoHuntersSaveEditor" editor.py
+
+        - name: Compute SHA256
+          id: hash
+          run: |
+            $hash = (Get-FileHash dist\CargoHuntersSaveEditor.exe -Algorithm SHA256).Hash.ToLower()
+            echo "sha256=$hash" >> $env:GITHUB_OUTPUT
+
+        - name: Upload to release
+          uses: softprops/action-gh-release@v2
+          with:
+            files: dist/CargoHuntersSaveEditor.exe
+            body: |
+              **SHA256:** `${{ steps.hash.outputs.sha256 }}`
+
+              > VirusTotal scan link will appear here after manual upload.
