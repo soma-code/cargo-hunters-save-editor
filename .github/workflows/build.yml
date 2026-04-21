@@ -35,4 +35,4 @@ jobs:
           body: |
             **SHA256:** `${{ steps.hash.outputs.sha256 }}`
 
-            > VirusTotal scan link will appear here after manual upload — PyInstaller executables require manual VT submission per build.
+            > VirusTotal scan link will appear here after manual upload.
