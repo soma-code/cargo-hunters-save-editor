@@ -26,30 +26,57 @@ def _items_db_path() -> Path:
     return Path(__file__).parent / "item_templates.json"
 
 _ITEMS_DB_CACHE = _items_db_path()
+_NAMES_EN_CACHE = _ITEMS_DB_CACHE.parent / "item_names_en.json"
 
 _GAME_BUNDLE_SUFFIX = (
     "steamapps/common/Cargo Hunters/CargoHunters_Data"
     "/StreamingAssets/aa/StandaloneWindows64"
     "/repositoriesgroup_assets_all_*.bundle"
 )
+_LOCALE_BUNDLE_SUFFIX = (
+    "steamapps/common/Cargo Hunters/CargoHunters_Data"
+    "/StreamingAssets/aa/StandaloneWindows64"
+    "/localization-stringtables_assets_all.bundle"
+)
 
 
-def _find_game_bundle() -> str | None:
-    """Locate the Cargo Hunters asset bundle across common Steam library locations."""
-    import glob as _glob
+def _steam_roots() -> list:
+    """Return candidate Steam library root paths, including secondary libraries."""
+    import re as _re
     roots = []
     try:
         import winreg
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
                              r"SOFTWARE\WOW6432Node\Valve\Steam")
-        roots.append(Path(winreg.QueryValueEx(key, "InstallPath")[0]))
+        steam = Path(winreg.QueryValueEx(key, "InstallPath")[0])
+        roots.append(steam)
+        vdf = steam / "steamapps/libraryfolders.vdf"
+        if vdf.exists():
+            for lib in _re.findall(r'"path"\s+"([^"]+)"',
+                                   vdf.read_text(errors="replace")):
+                roots.append(Path(lib.replace("\\\\", "\\")))
     except Exception:
         pass
     roots += [Path("C:/Program Files (x86)/Steam"), Path("C:/Program Files/Steam")]
-    for root in roots:
+    return roots
+
+
+def _find_game_bundle() -> str | None:
+    """Locate the Cargo Hunters asset bundle across all Steam library locations."""
+    import glob as _glob
+    for root in _steam_roots():
         matches = _glob.glob(str(root / _GAME_BUNDLE_SUFFIX))
         if matches:
             return matches[0]
+    return None
+
+
+def _find_locale_bundle() -> str | None:
+    """Locate the Cargo Hunters localization string tables bundle."""
+    for root in _steam_roots():
+        p = root / _LOCALE_BUNDLE_SUFFIX
+        if p.exists():
+            return str(p)
     return None
 
 
@@ -259,12 +286,13 @@ def _load_items_db(_save_path=None):
             raw = json.load(f)
     except Exception:
         return {}
+    names_en = _load_names_en()
     db = {}
     for entry in raw:
         tid = entry.get("_id", "")
         if not tid:
             continue
-        name, w, h, resizable, max_w, max_h, cat_id, price, stack_cap, has_cond, cond_max = "", 1, 1, False, None, None, "", "", None, False, None
+        name, w, h, resizable, max_w, max_h, cat_id, price, stack_cap, has_cond, cond_max, loc_ref = "", 1, 1, False, None, None, "", "", None, False, None, None
         for comp in entry.get("_components", []):
             t = comp.get("$t")
             if t == 26276:
@@ -277,6 +305,7 @@ def _load_items_db(_save_path=None):
                 ms = d.get("MaxSize", {})
                 if ms:
                     max_w, max_h = ms.get("Width"), ms.get("Height")
+                loc_ref = d.get("LocalizedName", {}).get("TableEntryReference")
             elif t == 1204:
                 cat_id = str(comp.get("_data", {}).get("CategoryId", ""))
             elif t == 51833:
@@ -290,6 +319,10 @@ def _load_items_db(_save_path=None):
                 qty_per_seg = comp.get("_data", {}).get("DecreaseByType", [{}])[0].get("QuantityPerSegment")
                 if qty_per_seg:
                     cond_max = qty_per_seg / 1000
+        if loc_ref is not None:
+            en = names_en.get(str(loc_ref), "")
+            if en and "{" not in en:
+                name = en
         db[tid] = {
             "ItemID": tid, "ItemName": name,
             "Width": w, "Height": h,
@@ -323,6 +356,57 @@ def _extract_items_db(dest: Path):
                 return
     except Exception:
         pass
+
+
+def _extract_names_en(dest: Path):
+    """Extract English item display names from the localization bundle."""
+    try:
+        import UnityPy
+        bundle = _find_locale_bundle()
+        if not bundle:
+            return
+        env = UnityPy.load(bundle)
+        for obj in env.objects:
+            if obj.type.name != "MonoBehaviour":
+                continue
+            try:
+                if getattr(obj.read(), "m_Name", "") != "Items_en":
+                    continue
+                tree = obj.read_typetree()
+                if not tree:
+                    continue
+                names = {}
+                for entry in tree.get("m_TableData", []):
+                    key = entry.get("m_Id")
+                    val = entry.get("m_Localized", "")
+                    if key is not None and val:
+                        names[str(key)] = val
+                if names:
+                    dest.write_text(json.dumps(names, ensure_ascii=False),
+                                    encoding="utf-8")
+                return
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _load_names_en() -> dict:
+    """Load English item name lookup {entry_ref_str: display_name}."""
+    cache = _NAMES_EN_CACHE
+    if not cache.exists() and getattr(sys, "frozen", False):
+        bundled = Path(sys._MEIPASS) / "item_names_en.json"
+        if bundled.exists():
+            shutil.copy2(bundled, cache)
+    if not cache.exists():
+        _extract_names_en(cache)
+    if not cache.exists():
+        return {}
+    try:
+        with open(cache, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 def _find_stash_container_id(data):
@@ -459,8 +543,7 @@ class SpawnDialog(tk.Toplevel):
         info = self._items_db.get(sel[0], {})
         cap = info.get("StackCapacity") or 1
         self._qty_spin.configure(to=cap)
-        if self._qty_var.get() > cap:
-            self._qty_var.set(cap)
+        self._qty_var.set(cap)
         self._qty_spin.configure(state="normal" if cap > 1 else "disabled")
 
     def _confirm(self):
@@ -493,7 +576,7 @@ class StashGrid(ttk.Frame):
         self._max_col = GRID_COLS
         self._j_offset = 0      # rows hidden at top when clipping
         self._i_offset = 0      # cols hidden at left when clipping
-        self._clip_var = tk.BooleanVar(value=True)
+
         self._drag_item = None
         self._drag_w = 0
         self._drag_h = 0
@@ -509,10 +592,7 @@ class StashGrid(ttk.Frame):
         ttk.Label(top, textvariable=self._info_var, anchor="w", font=("Segoe UI", 9)).pack(
             side="left", fill="x", expand=True
         )
-        ttk.Checkbutton(
-            top, text="Clip to content", variable=self._clip_var,
-            command=self.refresh,
-        ).pack(side="right")
+
         frame = ttk.Frame(self)
         frame.pack(fill="both", expand=True, padx=4, pady=4)
 
@@ -552,11 +632,10 @@ class StashGrid(ttk.Frame):
         for item in all_items:
             if item.get("ParentId") != self._stash_id:
                 continue
-            pos = item.get("Position", {})
-            if "J" not in pos:
-                continue
+            pos = item.get("Position") or {}
             # J = row (vertical/tall axis), I = col (horizontal/narrow axis)
-            row = pos["J"]
+            # Items without J (e.g. top-slot containers) default to row 0
+            row = pos.get("J", 0)
             col = pos.get("I", 0)
             tid = item.get("TemplateId", "")
             info = items_db.get(tid, {})
@@ -568,23 +647,16 @@ class StashGrid(ttk.Frame):
                     cells.append((row + dr, col + dc))
             self._item_cells[item["Id"]] = cells
 
+        self._j_offset = 0
+        self._i_offset = 0
         if self._grid_items:
-            min_r = min(r for r, c in self._grid_items)
-            min_c = min(c for r, c in self._grid_items)
             max_r = max(r for r, c in self._grid_items)
             max_c = max(c for r, c in self._grid_items)
-            if self._clip_var.get():
-                self._j_offset = min_r
-                self._i_offset = min_c
-            else:
-                self._j_offset = 0
-                self._i_offset = 0
-            self._max_row = max(GRID_ROWS - self._j_offset, max_r - self._j_offset + 4)
-            self._max_col = max(GRID_COLS - self._i_offset, max_c - self._i_offset + 2)
+            self._max_row = max(GRID_ROWS, max_r + 1)
+            self._max_col = max(GRID_COLS, max_c + 1)
         else:
-            self._j_offset = 0
-            self._i_offset = 0
-            self._max_row, self._max_col = GRID_ROWS, GRID_COLS
+            self._max_row = GRID_ROWS
+            self._max_col = GRID_COLS
 
         self._draw(items_db)
         self._info_var.set("Right-click an item to delete it  |  Right-click an empty cell to spawn")
@@ -607,8 +679,8 @@ class StashGrid(ttk.Frame):
             if iid in drawn or iid not in self._item_cells:
                 continue
             drawn.add(iid)
-            pos = item.get("Position", {})
-            r0 = pos["J"]
+            pos = item.get("Position") or {}
+            r0 = pos.get("J", 0)
             c0 = pos.get("I", 0)
             tid = item.get("TemplateId", "")
             info = items_db.get(tid, {})
@@ -1115,13 +1187,11 @@ class SaveEditor(tk.Tk):
         for item in all_items:
             if item.get("ParentId") != stash_id:
                 continue
-            pos = item.get("Position", {})
-            if "J" not in pos:
-                continue
+            pos = item.get("Position") or {}
             tid = item.get("TemplateId", "")
             info = self.items_db.get(tid, {})
             w, h = _item_size(info, item)
-            j, i = pos["J"], pos.get("I", 0)
+            j, i = pos.get("J", 0), pos.get("I", 0)
             if j < 0 or i < 0 or j + h > GRID_ROWS or i + w > GRID_COLS:
                 oob.append(info.get("ItemName", tid[:24]))
         if oob:

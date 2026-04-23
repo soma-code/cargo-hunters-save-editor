@@ -23,7 +23,7 @@ jobs:
         run: pip install pyinstaller
 
       - name: Build executable
-        run: pyinstaller --onefile --windowed --name "CargoHuntersSaveEditor" --add-data "item_templates.json;." editor.py
+        run: pyinstaller --onefile --windowed --name "CargoHuntersSaveEditor" --add-data "item_templates.json;." --add-data "item_names_en.json;." editor.py
 
       - name: Compute SHA256
         id: hash

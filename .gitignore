@@ -16,6 +16,15 @@ __pycache__/
 *.py[cod]
 *.pyo
 
+# Build artefacts
+.venv/
+build/
+dist/
+*.spec
+
+# Claude Code
+.claude/
+
 # Screenshots / local temp files (docs/ folder is intentionally committed)
 *.jpg
 *.jpeg
